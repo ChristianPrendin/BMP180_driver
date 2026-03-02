@@ -1,0 +1,2 @@
+# AOS BMP180 Device Driver
+This repository contains a C++ device driver for the BMP180 sensor, designed for the Miosix RTOS on the STM32F4Discovery board. Developed for the Advanced Operating Systems course at Politecnico di Milano.

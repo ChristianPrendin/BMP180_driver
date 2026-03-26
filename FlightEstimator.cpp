@@ -1,4 +1,6 @@
 #include "FlightEstimator.h"
+#include "FlightConfig.h"
+#include <cmath>
 
 FlightEstimator::FlightEstimator(float emaAlpha, float seaLevelPressure)
     : state(FlightState::IDLE),
@@ -30,7 +32,7 @@ void FlightEstimator::resetFlight() {
 
 float FlightEstimator::calculateAbsoluteAltitude(float pressurePa) const {
     // International Barometric Formula: h = 44330 * (1 - (p / p0)^(1 / 5.255))
-    return 44330.0f * (1.0f - std::pow(pressurePa / p0, 0.190295f));
+    return FlightConfig::BAROMETRIC_COEFF * (1.0f - std::pow(pressurePa / p0, FlightConfig::BAROMETRIC_EXP));
 }
 
 void FlightEstimator::update(float pressurePa, float deltaTimeSec) {
@@ -56,17 +58,17 @@ void FlightEstimator::update(float pressurePa, float deltaTimeSec) {
         case FlightState::IDLE:
             // Takeoff threshold: Must be > X meters high AND ascending faster than Y m/s
             // This prevents noise from triggering a false launch.
-            if (currentFilteredAltitude > 0.5f && verticalVelocity > 0.3f) {
+            if (currentFilteredAltitude > FlightConfig::MIN_TAKEOFF_ALTITUDE_M && verticalVelocity > FlightConfig::MIN_TAKEOFF_VELOCITY_MS) {
                 state = FlightState::ASCENDING;
             }
             break;
 
         case FlightState::ASCENDING:
             // Apogee detection: Velocity drops below 0 (rocket starts falling)
-            if (verticalVelocity < 0.0f) {
+            if (verticalVelocity < FlightConfig::APOGEE_VELOCITY_THRESH_MS) {
                 apogeeConfidenceCounter++;
                 // Require 3 consecutive negative velocity readings to trigger apogee
-                if (apogeeConfidenceCounter >= 3) { 
+                if (apogeeConfidenceCounter >= FlightConfig::APOGEE_CONFIDENCE_TICKS) {
                     state = FlightState::APOGEE;
                 }
             } else {
@@ -83,9 +85,9 @@ void FlightEstimator::update(float pressurePa, float deltaTimeSec) {
 
         case FlightState::DESCENDING:
             // Rocket is falling. Check if it has landed.
-            if (currentFilteredAltitude < 10.0f && std::abs(verticalVelocity) < 0.5f) {
+            if (currentFilteredAltitude < FlightConfig::MAX_LANDING_ALTITUDE_M && std::abs(verticalVelocity) < FlightConfig::MAX_LANDING_VELOCITY_MS) {
                 landingConfidenceCounter++;
-                if (landingConfidenceCounter >= 40) { // Require stable ground reading for a bit
+                if (landingConfidenceCounter >= FlightConfig::LANDING_CONFIDENCE_TICKS) { // Require stable ground reading for a bit
                     resetFlight(); // Auto-reset for the next launch!
                 }
             } else {

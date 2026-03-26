@@ -3,6 +3,7 @@
 #include "arch/common/drivers/stm32f2_f4_i2c.h"
 #include "BMP180.h"
 #include "FlightEstimator.h"
+#include "FlightConfig.h"
 
 using namespace miosix;
 
@@ -38,13 +39,13 @@ int main() {
         
         // Busy wait loop to prevent WFI state and keep ST-Link active
         while(true) { 
-            for(volatile int i = 0; i < 1000000; i++);
+            Thread::sleep(1000);
         } 
     }
     printf("BMP180 successfully initialized. EEPROM parameters read.\n");
 
     // Instantiate our flight computer
-    FlightEstimator flightComputer;
+    FlightEstimator flightComputer(FlightConfig::EMA_ALPHA, FlightConfig::SEA_LEVEL_PRESSURE_PA);
 
     // 2. Calibration and Warm-up Phase
     printf("Warming up sensor and calibrating zero altitude...\n");
@@ -63,8 +64,6 @@ int main() {
 
     printf("Time,Altitude,Velocity,State\n"); // CSV header for telemetry output
 
-    const long long LOOP_PERIOD_NS = 50000000LL;
-
     // Initialize the timer for deltaTime calculation (getTime() returns nanoseconds)
     long long lastTime = getTime();
     long long absoluteNextWakeup = lastTime;
@@ -72,7 +71,7 @@ int main() {
 
     // 3. Operating System Main Loop
     while (true) {
-        absoluteNextWakeup += LOOP_PERIOD_NS;
+        absoluteNextWakeup += FlightConfig::LOOP_PERIOD_NS;
         // --- DATA ACQUISITION ---
         bmpSensor.sample();
         Bmp180Sample currentData = bmpSensor.get_last_sample();
@@ -81,7 +80,7 @@ int main() {
         long long currentTime = getTime();
         float deltaTimeSec = (currentTime - lastTime) / 1000000000.0f; 
         lastTime = currentTime; 
-        totalTime += deltaTimeSec; // Aggiorniamo il timestamp assoluto
+        totalTime += deltaTimeSec; 
 
         // --- DATA PROCESSING ---
         flightComputer.update(currentData.pressure, deltaTimeSec);
@@ -100,7 +99,12 @@ int main() {
                flightComputer.getVerticalVelocity(),
                (int)flightComputer.getState());
         
-        // --- CPU YIELD ---
+        // --- CPU YIELD & DEADLINE MISS MANAGEMENT (Skip Policy) ---
+        long long now = getTime();
+        if (now > absoluteNextWakeup) {
+            // Deadline missed! Skip policy
+            absoluteNextWakeup = now; 
+        }
         Thread::nanoSleepUntil(absoluteNextWakeup);
     }
     
